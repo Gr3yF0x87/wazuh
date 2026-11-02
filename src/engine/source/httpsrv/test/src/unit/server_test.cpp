@@ -17,7 +17,7 @@
 #include <vector>
 
 #include <base/logging.hpp>
-#include <httpsrv/udsServer.hpp>
+#include <httpsrv/server.hpp>
 
 using namespace std::chrono_literals;
 using httpsrv::Method;
@@ -25,8 +25,8 @@ using httpsrv::Request;
 using httpsrv::Response;
 using httpsrv::RouteClass;
 using httpsrv::RouteOptions;
-using httpsrv::UdsServer;
-using httpsrv::UdsServerOptions;
+using httpsrv::Server;
+using httpsrv::ServerOptions;
 using httpsrv::UNLIMITED_BODY;
 
 namespace
@@ -38,9 +38,9 @@ std::string uniqueSocketPath(const char* tag)
            + std::to_string(counter.fetch_add(1)) + ".sock";
 }
 
-UdsServerOptions options(std::size_t threads = 2, std::size_t queue = 16)
+ServerOptions options(std::size_t threads = 2, std::size_t queue = 16)
 {
-    UdsServerOptions opts;
+    ServerOptions opts;
     opts.name = "Test";
     opts.logTag = "httpsrv-test";
     opts.executorThreads = threads;
@@ -110,7 +110,7 @@ bool hasHeader(const std::string& response, const std::string& line)
 {
     return response.find("\r\n" + line + "\r\n") != std::string::npos;
 }
-class UdsServerTest : public ::testing::Test
+class ServerTest : public ::testing::Test
 {
 protected:
     void SetUp() override { logging::testInit(); }
@@ -137,7 +137,7 @@ private:
 };
 } // namespace
 
-TEST_F(UdsServerTest, RoundTripCarriesNeutralRequestAndResponse)
+TEST_F(ServerTest, RoundTripCarriesNeutralRequestAndResponse)
 {
     const auto path = socketPath("rt");
     Method seenMethod {Method::GET};
@@ -145,7 +145,7 @@ TEST_F(UdsServerTest, RoundTripCarriesNeutralRequestAndResponse)
     std::string seenBody;
     std::string seenHeader;
 
-    UdsServer server {options()};
+    Server server {options()};
     server.addRoute(Method::POST,
                     "/events",
                     [&](const Request& req, Response& res)
@@ -170,10 +170,10 @@ TEST_F(UdsServerTest, RoundTripCarriesNeutralRequestAndResponse)
     EXPECT_EQ("Value", seenHeader) << "header lookup is case-insensitive";
 }
 
-TEST_F(UdsServerTest, RegistersThroughTheRouteRegistrarInterface)
+TEST_F(ServerTest, RegistersThroughTheRouteRegistrarInterface)
 {
     const auto path = socketPath("registrar");
-    auto server = std::make_shared<UdsServer>(options());
+    auto server = std::make_shared<Server>(options());
     const std::shared_ptr<httpsrv::IRouteRegistrar> registrar = server;
     registrar->addRoute(
         Method::POST, "/events", [](const Request&, Response& res) { res.setContent("registered", "text/plain"); });
@@ -186,13 +186,13 @@ TEST_F(UdsServerTest, RegistersThroughTheRouteRegistrarInterface)
     EXPECT_EQ("registered", bodyOf(response));
 }
 
-TEST_F(UdsServerTest, HeaderCountSeesARepeatedHeader)
+TEST_F(ServerTest, HeaderCountSeesARepeatedHeader)
 {
     const auto path = socketPath("dup");
     std::size_t repeated {0};
     std::size_t single {0};
 
-    UdsServer server {options()};
+    Server server {options()};
     server.addRoute(Method::POST,
                     "/events",
                     [&](const Request& req, Response&)
@@ -209,14 +209,14 @@ TEST_F(UdsServerTest, HeaderCountSeesARepeatedHeader)
     EXPECT_EQ(1U, single);
 }
 
-TEST_F(UdsServerTest, ExecutorFullAnswers503Busy)
+TEST_F(ServerTest, ExecutorFullAnswers503Busy)
 {
     const auto path = socketPath("busy");
     std::promise<void> release;
     auto released = release.get_future().share();
     std::atomic<int> started {0};
 
-    UdsServer server {options(1, 1)};
+    Server server {options(1, 1)};
     server.addRoute(Method::POST,
                     "/events",
                     [&](const Request&, Response&)
@@ -249,14 +249,14 @@ TEST_F(UdsServerTest, ExecutorFullAnswers503Busy)
     server.shutdown(1s);
 }
 
-TEST_F(UdsServerTest, InlineRouteAnswersWhileTheExecutorIsSaturated)
+TEST_F(ServerTest, InlineRouteAnswersWhileTheExecutorIsSaturated)
 {
     const auto path = socketPath("inline");
     std::promise<void> release;
     auto released = release.get_future().share();
     std::atomic<int> started {0};
 
-    UdsServer server {options(1, 1)};
+    Server server {options(1, 1)};
     server.addRoute(Method::POST,
                     "/slow",
                     [&](const Request&, Response&)
@@ -294,10 +294,10 @@ TEST_F(UdsServerTest, InlineRouteAnswersWhileTheExecutorIsSaturated)
     server.shutdown(1s);
 }
 
-TEST_F(UdsServerTest, InlineRouteThrowGives500)
+TEST_F(ServerTest, InlineRouteThrowGives500)
 {
     const auto path = socketPath("inline500");
-    UdsServer server {options()};
+    Server server {options()};
     RouteOptions inlineRoute;
     inlineRoute.runInline = true;
     server.addRoute(
@@ -314,7 +314,7 @@ TEST_F(UdsServerTest, InlineRouteThrowGives500)
 
 // The transport turns its byte budget into a parser limit when no server-wide cap is set; a server without a
 // budget has no such limit, so only the route caps bound the body.
-TEST_F(UdsServerTest, WithoutAByteBudgetTheParserHasNoLimit)
+TEST_F(ServerTest, WithoutAByteBudgetTheParserHasNoLimit)
 {
     constexpr std::size_t BUDGET {2U * 1024U * 1024U};
     const std::string body(3U * 1024U * 1024U, 'x');
@@ -325,7 +325,7 @@ TEST_F(UdsServerTest, WithoutAByteBudgetTheParserHasNoLimit)
         const auto path = socketPath("budget");
         auto opts = options();
         opts.maxInFlightBytes = BUDGET;
-        UdsServer server {opts};
+        Server server {opts};
         server.addRoute(Method::POST, "/import", [](const Request&, Response&) {}, unlimited);
         server.start(path);
         const auto head = "POST /import HTTP/1.1\r\nHost: localhost\r\nContent-Length: " + std::to_string(body.size())
@@ -338,7 +338,7 @@ TEST_F(UdsServerTest, WithoutAByteBudgetTheParserHasNoLimit)
         auto opts = options();
         opts.maxInFlightBytes = BUDGET;
         opts.byteBudget = false;
-        UdsServer server {opts};
+        Server server {opts};
         std::atomic<std::size_t> seen {0};
         server.addRoute(
             Method::POST, "/import", [&](const Request& req, Response&) { seen = req.body.size(); }, unlimited);
@@ -352,12 +352,12 @@ TEST_F(UdsServerTest, WithoutAByteBudgetTheParserHasNoLimit)
 
 // Connections that never send their request fill the server-wide limit; the next one is refused at
 // accept, before any route class is known, and still counts as a connection shed.
-TEST_F(UdsServerTest, ConnectionCapRejectCountsAsAConnectionShed)
+TEST_F(ServerTest, ConnectionCapRejectCountsAsAConnectionShed)
 {
     const auto path = socketPath("cap");
     auto opts = options();
     opts.maxConnections = 2;
-    UdsServer server {opts};
+    Server server {opts};
     server.addRoute(Method::POST, "/events", [](const Request&, Response&) {});
     server.start(path);
 
@@ -382,10 +382,10 @@ TEST_F(UdsServerTest, ConnectionCapRejectCountsAsAConnectionShed)
     server.shutdown(1s);
 }
 
-TEST_F(UdsServerTest, HandlerExceptionAnswers500Text)
+TEST_F(ServerTest, HandlerExceptionAnswers500Text)
 {
     const auto path = socketPath("throw");
-    UdsServer server {options()};
+    Server server {options()};
     server.addRoute(Method::POST, "/events", [](const Request&, Response&) { throw std::runtime_error {"boom"}; });
     server.start(path);
 
@@ -399,11 +399,11 @@ TEST_F(UdsServerTest, HandlerExceptionAnswers500Text)
     EXPECT_EQ(1U, stats.handlerErrors);
 }
 
-TEST_F(UdsServerTest, ShutdownDeliversARunningReplyWithinTheDeadline)
+TEST_F(ServerTest, ShutdownDeliversARunningReplyWithinTheDeadline)
 {
     const auto path = socketPath("slow");
     std::atomic<bool> started {false};
-    UdsServer server {options()};
+    Server server {options()};
     server.addRoute(Method::POST,
                     "/events",
                     [&](const Request&, Response& res)
@@ -428,14 +428,14 @@ TEST_F(UdsServerTest, ShutdownDeliversARunningReplyWithinTheDeadline)
     EXPECT_EQ(0U, report.abandoned);
 }
 
-TEST_F(UdsServerTest, ShutdownAnswersUnstartedRequests503AtTheDeadline)
+TEST_F(ServerTest, ShutdownAnswersUnstartedRequests503AtTheDeadline)
 {
     const auto path = socketPath("unstarted");
     std::promise<void> release;
     auto released = release.get_future().share();
     std::atomic<int> started {0};
 
-    UdsServer server {options(1, 4)};
+    Server server {options(1, 4)};
     server.addRoute(Method::POST,
                     "/events",
                     [&](const Request&, Response&)
@@ -480,20 +480,20 @@ enum class StopVia
     ShutdownAll
 };
 
-class UdsServerOutlivingHandlerTest
-    : public UdsServerTest
+class ServerOutlivingHandlerTest
+    : public ServerTest
     , public ::testing::WithParamInterface<StopVia>
 {
 };
 
-TEST_P(UdsServerOutlivingHandlerTest, StopReturnsOnlyAfterAHandlerThatOutlivedTheDeadline)
+TEST_P(ServerOutlivingHandlerTest, StopReturnsOnlyAfterAHandlerThatOutlivedTheDeadline)
 {
     const auto slowPath = socketPath("outlived");
     const auto idlePath = socketPath("outlived_idle");
     std::atomic<bool> started {false};
     std::atomic<bool> finished {false};
 
-    UdsServer slow {options(1, 4)};
+    Server slow {options(1, 4)};
     slow.addRoute(Method::POST,
                   "/slow",
                   [&](const Request&, Response&)
@@ -502,7 +502,7 @@ TEST_P(UdsServerOutlivingHandlerTest, StopReturnsOnlyAfterAHandlerThatOutlivedTh
                       std::this_thread::sleep_for(OUTLIVING_HANDLER_TIME);
                       finished = true;
                   });
-    UdsServer idle {options()};
+    Server idle {options()};
     idle.addRoute(Method::POST, "/x", [](const Request&, Response&) {});
     slow.start(slowPath);
     idle.start(idlePath);
@@ -529,17 +529,17 @@ TEST_P(UdsServerOutlivingHandlerTest, StopReturnsOnlyAfterAHandlerThatOutlivedTh
 }
 
 INSTANTIATE_TEST_SUITE_P(StopPaths,
-                         UdsServerOutlivingHandlerTest,
+                         ServerOutlivingHandlerTest,
                          ::testing::Values(StopVia::Shutdown, StopVia::ShutdownAll),
                          [](const ::testing::TestParamInfo<StopVia>& info)
                          { return info.param == StopVia::Shutdown ? "Shutdown" : "ShutdownAll"; });
 
-TEST_F(UdsServerTest, ShutdownAllStopsAcceptingOnEveryServerFirst)
+TEST_F(ServerTest, ShutdownAllStopsAcceptingOnEveryServerFirst)
 {
     const auto pathA = socketPath("allA");
     const auto pathB = socketPath("allB");
-    UdsServer a {options()};
-    UdsServer b {options()};
+    Server a {options()};
+    Server b {options()};
     a.addRoute(Method::POST, "/x", [](const Request&, Response&) {});
     b.addRoute(Method::POST, "/x", [](const Request&, Response&) {});
     a.start(pathA);
@@ -553,10 +553,10 @@ TEST_F(UdsServerTest, ShutdownAllStopsAcceptingOnEveryServerFirst)
     EXPECT_EQ(0, statusOf(roundTrip(pathB, post(pathB, "/x", ""))));
 }
 
-TEST_F(UdsServerTest, SocketIsCreatedWithMode0660)
+TEST_F(ServerTest, SocketIsCreatedWithMode0660)
 {
     const auto path = socketPath("mode");
-    UdsServer server {options()};
+    Server server {options()};
     server.addRoute(Method::GET, "/status", [](const Request&, Response&) {});
     server.start(path);
 
@@ -568,14 +568,14 @@ TEST_F(UdsServerTest, SocketIsCreatedWithMode0660)
 }
 
 // A typo in the configured path must never delete an operator's file: only a socket is replaced.
-TEST_F(UdsServerTest, StartRefusesAPathThatIsNotASocket)
+TEST_F(ServerTest, StartRefusesAPathThatIsNotASocket)
 {
     const auto path = socketPath("file");
     {
         std::ofstream file {path};
         file << "operator data";
     }
-    UdsServer server {options()};
+    Server server {options()};
     server.addRoute(Method::GET, "/status", [](const Request&, Response&) {});
 
     EXPECT_ANY_THROW(server.start(path));
@@ -583,12 +583,12 @@ TEST_F(UdsServerTest, StartRefusesAPathThatIsNotASocket)
     std::filesystem::remove(path);
 }
 
-TEST_F(UdsServerTest, ExpectContinueOptionReachesTheWire)
+TEST_F(ServerTest, ExpectContinueOptionReachesTheWire)
 {
     const auto path = socketPath("expect");
     auto opts = options();
     opts.expectContinue = true;
-    UdsServer server {opts};
+    Server server {opts};
     server.addRoute(Method::POST,
                     "/events",
                     [](const Request& req, Response& res) { res.setContent(std::string {req.body}, "text/plain"); });

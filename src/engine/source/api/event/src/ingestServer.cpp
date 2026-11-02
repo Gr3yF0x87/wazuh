@@ -50,12 +50,12 @@ IngestLimits validateIngestLimits(const IngestLimits& limits)
     return limits;
 }
 
-std::shared_ptr<httpsrv::UdsServer> makeIngestServer(const std::shared_ptr<::router::IRouterAPI>& orchestrator,
-                                                     const std::shared_ptr<::dumper::IDumper>& dumper,
-                                                     std::shared_ptr<agentcache::AgentMetadataCache> agentMetadataCache,
-                                                     const IngestLimits& limits)
+std::shared_ptr<httpsrv::Server> makeIngestServer(const std::shared_ptr<::router::IRouterAPI>& orchestrator,
+                                                  const std::shared_ptr<::dumper::IDumper>& dumper,
+                                                  std::shared_ptr<agentcache::AgentMetadataCache> agentMetadataCache,
+                                                  const IngestLimits& limits)
 {
-    httpsrv::UdsServerOptions options;
+    httpsrv::ServerOptions options;
     options.name = "Event ingest";
     options.logTag = "wazuh-manager-analysisd:ingest-server";
     options.maxConnections = limits.maxConnections;
@@ -65,7 +65,7 @@ std::shared_ptr<httpsrv::UdsServer> makeIngestServer(const std::shared_ptr<::rou
     options.executorQueue = limits.maxConnections;
     options.expectContinue = true;
 
-    auto server = std::make_shared<httpsrv::UdsServer>(std::move(options));
+    auto server = std::make_shared<httpsrv::Server>(std::move(options));
     httpsrv::RouteOptions route;
     route.cls = httpsrv::RouteClass::Data;
     route.maxBodyBytes = limits.maxBodyBytes;

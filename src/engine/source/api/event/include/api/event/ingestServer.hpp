@@ -7,7 +7,7 @@
 
 #include <agentcache/agentMetadataCache.hpp>
 #include <dumper/idumper.hpp>
-#include <httpsrv/udsServer.hpp>
+#include <httpsrv/server.hpp>
 #include <router/iapi.hpp>
 
 namespace api::event
@@ -43,10 +43,10 @@ IngestLimits validateIngestLimits(const IngestLimits& limits);
  * before it is read); "Expect: 100-continue" is answered once a request is admitted; the executor
  * runs max(2, nproc/4) handlers with a queue as long as the connection cap.
  */
-std::shared_ptr<httpsrv::UdsServer> makeIngestServer(const std::shared_ptr<::router::IRouterAPI>& orchestrator,
-                                                     const std::shared_ptr<::dumper::IDumper>& dumper,
-                                                     std::shared_ptr<agentcache::AgentMetadataCache> agentMetadataCache,
-                                                     const IngestLimits& limits);
+std::shared_ptr<httpsrv::Server> makeIngestServer(const std::shared_ptr<::router::IRouterAPI>& orchestrator,
+                                                  const std::shared_ptr<::dumper::IDumper>& dumper,
+                                                  std::shared_ptr<agentcache::AgentMetadataCache> agentMetadataCache,
+                                                  const IngestLimits& limits);
 
 } // namespace api::event
 
